@@ -119,7 +119,9 @@ document.getElementById('shovel-input').focus()</script>"
           (shovel:run-vm (session-vm-bytecode *session*)
                          :sources (make-sources (session-vm-sources *session*))
                          :user-primitives *udps*
-                         :state (session-vm-state *session*))
+                         :state (session-vm-state *session*)
+                         :cells-quota (expt 10 5)
+                         :total-ticks-quota (expt 10 6))
         (declare (ignore result))
         (cond ((shovel:vm-execution-complete vm)
                (concatenate 'string
