@@ -76,13 +76,23 @@
      (setf (session-user-read *session*) nil)
      (nth-value 0 (parse-integer (hunchentoot:get-parameter "input"))))))
 
+(defun web-read-line ()
+  (case (session-user-read *session*)
+    ((nil)
+     (setf (session-user-read *session*) :line)
+     (values :null :nap-and-retry-on-wake-up))
+    (:line
+     (setf (session-user-read *session*) nil)
+     (hunchentoot:get-parameter "input"))))
+
 (defparameter *udps* (list (list "print" 'web-print 1)
                            (list "printLn" 'web-print-ln 1)
                            (list "readChar" 'web-read-char 0)
                            (list "readInt" 'web-read-int 0)
+                           (list "readLine" 'web-read-line 0)
                            (list "random" (lambda () (random 1.0d0)) 0)))
 
-(hunchentoot:define-easy-handler (guess :uri "/guess") ()
+(hunchentoot:define-easy-handler (whatever :uri "/whatever") ()
   (setf (hunchentoot:content-type*) "text/html")
   (alexandria:if-let (session-id (hunchentoot:get-parameter "sessionid"))
     (use-session session-id)
@@ -96,33 +106,65 @@
        (sqlite:with-transaction db
          ,@body))))
 
-(defun start-new-session ()
-  (let ((*session* (make-session :id nil
-                                 :last-access-time nil
-                                 :vm-state nil
-                                 :vm-bytecode (shovel:get-bytecode *sources*)
-                                 :vm-sources (first *sources*)
-                                 :page-content ""
-                                 :user-read nil)))
-    (run-session)))
-
 (defun make-sources (program)
   (list (shovel:make-source-file :name "your-program"
                                  :contents program)))
 
+(defun start-new-session ()
+  (alexandria:if-let (program (hunchentoot:post-parameter "program"))
+    (multiple-value-bind (result error)
+        (ignore-errors
+          (shovel:get-bytecode (make-sources program)))
+      (if result
+          (create-and-run-session result program)
+          (concatenate 'string
+                       "<pre>"
+                       (hunchentoot:escape-for-html
+                        (with-output-to-string (str)
+                          (print-object error str)))
+                       "</pre>")))
+    (with-output-to-string (str)
+      (write-string "<form action='/whatever' method='post'>" str)
+      (write-string "<textarea name='program' id='shovel-input' rows='30' cols='80'></textarea><br/>" str)
+      (write-string "<input type='submit' value='Submit'/>" str)
+      (write-string "</form>" str)
+      (write-string "<script type='text/javascript'>
+document.getElementById('shovel-input').focus()</script>"
+                    str))))
+
+(defun create-and-run-session (bytecode program)
+  (let ((*session* (make-session :id nil
+                                 :last-access-time nil
+                                 :vm-state nil
+                                 :vm-bytecode bytecode
+                                 :vm-sources program
+                                 :page-content ""
+                                 :user-read nil)))
+    (run-session)))
+
 (defun run-session ()
-  (multiple-value-bind (result vm)
-      (shovel:run-vm (session-vm-bytecode *session*)
-                     :sources (make-sources (session-vm-sources *session*))
-                     :user-primitives *udps*
-                     :state (session-vm-state *session*))
-    (declare (ignore result))
-    (cond ((shovel:vm-execution-complete vm)
-           (start-new-session))
-          (t
-           (setf (session-vm-state *session*) (shovel:serialize-vm-state vm))
-           (save-session)
-           (generate-page)))))
+  (handler-case
+      (multiple-value-bind (result vm)
+          (shovel:run-vm (session-vm-bytecode *session*)
+                         :sources (make-sources (session-vm-sources *session*))
+                         :user-primitives *udps*
+                         :state (session-vm-state *session*))
+        (declare (ignore result))
+        (cond ((shovel:vm-execution-complete vm)
+               (concatenate 'string
+                            (session-page-content *session*)
+                            "<p>Program completed.</p>"))
+              (t
+               (setf (session-vm-state *session*) (shovel:serialize-vm-state vm))
+               (save-session)
+               (generate-page))))
+    (shovel:shovel-error (err)
+      (concatenate 'string
+                   "<pre>"
+                   (hunchentoot:escape-for-html
+                    (with-output-to-string (str)
+                      (print-object err str)))
+                   "</pre>"))))
 
 (defun save-session ()
   (within-sqlite-transaction
@@ -134,7 +176,8 @@
            (user-read-code (ecase (session-user-read *session*)
                              ((nil) 0)
                              (:int 1)
-                             (:char 2))))
+                             (:char 2)
+                             (:line 3))))
       (setf (session-id *session*) id)
       (sqlite:execute-non-query db "INSERT INTO Sessions (Id, LastAccessTime,
     VmState, VmBytecode, VmSources, PageContent, UserRead) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -161,7 +204,8 @@ VmBytecode, VmSources, PageContent, UserRead FROM Sessions WHERE Id = ?" session
                       :user-read (ecase (elt session-items 6)
                                    ((0) nil)
                                    ((1) :int)
-                                   ((2) :char)))))))
+                                   ((2) :char)
+                                   ((3) :line)))))))
 
 (defun use-session (session-id)
   (let ((*session* (load-session session-id)))
@@ -178,13 +222,14 @@ VmBytecode, VmSources, PageContent, UserRead FROM Sessions WHERE Id = ?" session
 (defun generate-page ()
   (with-output-to-string (str)
     (write-string (session-page-content *session*) str)
-    (write-string "<form action='/guess' method='get'>" str)
+    (write-string "<form action='/whatever' method='get'>" str)
     (write-string "<input type='text' name='input' id='shovel-input'/>" str)
     (format str "<input type='hidden' name='sessionid' value='~d' id='shovel-input'/>"
             (session-id *session*))
     (write-string "<input type='submit' value='Submit'/>" str)
     (write-string "</form>" str)
-    (write-string "<script type='text/javascript'>document.getElementById('shovel-input').focus()</script>"
+    (write-string "<script type='text/javascript'>
+document.getElementById('shovel-input').focus()</script>"
                   str)))
 
 (defparameter *db-path* (asdf:system-relative-pathname
