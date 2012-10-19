@@ -5,17 +5,22 @@
 (defparameter *sources* (list "
     var game = fn () {
       var secretNumber = floor(@random() * 100 + 1)
+      var attempt = 0
       var iteration = fn () {
-        @print('Enter a number between 1 and 100: ')
+        attempt = attempt + 1
+        @print('Attempt ' + string(attempt) + ' - ')
+        @print('enter a number between 1 and 100: ')
         var guess = @readInt()
         if guess < secretNumber {
           @printLn('Too small!')
           iteration()
-        } else if guess > secretNumber {
+        }
+        else if guess > secretNumber {
           @printLn('Too large!')
           iteration()
-        } else {
-          @printLn('You guessed it! Congratulations!')
+        }
+        else {
+          @printLn('You guessed it in ' + string(attempt) + ' attempts! Congratulations!')
           @print('Another game? (y/n) ')
           if @readChar() == 'y' game()
         }
@@ -41,17 +46,17 @@
   (setf (session-page-content *session*)
         (with-output-to-string (str)
           (write-string (session-page-content *session*) str)
-          (write-string "<pre>" str)
+          (write-string "<span>" str)
           (write-string (hunchentoot:escape-for-html content) str)
-          (write-string "</pre>" str))))
+          (write-string "</span>" str))))
 
 (defun web-print-ln (content)
   (setf (session-page-content *session*)
         (with-output-to-string (str)
           (write-string (session-page-content *session*) str)
-          (write-string "<pre>" str)
+          (write-string "<span>" str)
           (write-string (hunchentoot:escape-for-html content) str)
-          (write-string "</pre><br/>" str))))
+          (write-string "</span><br/>" str))))
 
 (defun web-read-char ()
   (case (session-user-read *session*)
@@ -115,32 +120,32 @@
            (save-session)
            (generate-page)))))
 
-    (defun save-session ()
-      (within-sqlite-transaction
-        (let* ((id (or (session-id *session*)
-                       (sqlite:execute-single db "SELECT MAX(Id) + 1 FROM Sessions")))
-               (insert (not (session-id *session*)))
-               (bytecode (coerce (shovel:serialize-bytecode (session-vm-bytecode *session*))
-                                 '(simple-array (unsigned-byte 8) (*))))
-               (state (coerce (session-vm-state *session*)
-                              '(simple-array (unsigned-byte 8) (*))))
-               (user-read-code (ecase (session-user-read *session*)
-                                 ((nil) 0)
-                                 (:int 1)
-                                 (:char 2))))
-          (unless (session-id *session*)
-            (setf (session-id *session*) id))
-          (cond (insert
-                 (sqlite:execute-non-query db "INSERT INTO Sessions (Id, LastAccessTime,
+(defun save-session ()
+  (within-sqlite-transaction
+    (let* ((id (or (session-id *session*)
+                   (sqlite:execute-single db "SELECT MAX(Id) + 1 FROM Sessions")))
+           (insert (not (session-id *session*)))
+           (bytecode (coerce (shovel:serialize-bytecode (session-vm-bytecode *session*))
+                             '(simple-array (unsigned-byte 8) (*))))
+           (state (coerce (session-vm-state *session*)
+                          '(simple-array (unsigned-byte 8) (*))))
+           (user-read-code (ecase (session-user-read *session*)
+                             ((nil) 0)
+                             (:int 1)
+                             (:char 2))))
+      (unless (session-id *session*)
+        (setf (session-id *session*) id))
+      (cond (insert
+             (sqlite:execute-non-query db "INSERT INTO Sessions (Id, LastAccessTime,
     VmState, VmBytecode, VmSources, PageContent, UserRead) VALUES (?, ?, ?, ?, ?, ?, ?)"
-                                           id
-                                           (get-universal-time)
-                                           state
-                                           bytecode
-                                           (session-vm-sources *session*)
-                                           (session-page-content *session*)
-                                           user-read-code))
-                (t (sqlite:execute-non-query db "UPDATE Sessions SET
+                                       id
+                                       (get-universal-time)
+                                       state
+                                       bytecode
+                                       (session-vm-sources *session*)
+                                       (session-page-content *session*)
+                                       user-read-code))
+            (t (sqlite:execute-non-query db "UPDATE Sessions SET
     LastAccessTime = ?,
     VmState = ?,
     VmBytecode = ?,
@@ -149,13 +154,13 @@
     UserRead = ?
     WHERE Id = ?
     "
-                                             (get-universal-time)
-                                             state
-                                             bytecode
-                                             (session-vm-sources *session*)
-                                             (session-page-content *session*)
-                                             user-read-code
-                                             id))))))
+                                         (get-universal-time)
+                                         state
+                                         bytecode
+                                         (session-vm-sources *session*)
+                                         (session-page-content *session*)
+                                         user-read-code
+                                         id))))))
 
 (defun load-session (session-id)
   (within-sqlite-transaction
