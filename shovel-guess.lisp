@@ -126,9 +126,7 @@
 
 (defun save-session ()
   (within-sqlite-transaction
-    (let* ((id (or (session-id *session*)
-                   (sqlite:execute-single db "SELECT MAX(Id) + 1 FROM Sessions")))
-           (insert (not (session-id *session*)))
+    (let* ((id (sqlite:execute-single db "SELECT MAX(Id) + 1 FROM Sessions"))
            (bytecode (coerce (shovel:serialize-bytecode (session-vm-bytecode *session*))
                              '(simple-array (unsigned-byte 8) (*))))
            (state (coerce (session-vm-state *session*)
@@ -137,34 +135,16 @@
                              ((nil) 0)
                              (:int 1)
                              (:char 2))))
-      (unless (session-id *session*)
-        (setf (session-id *session*) id))
-      (cond (insert
-             (sqlite:execute-non-query db "INSERT INTO Sessions (Id, LastAccessTime,
+      (setf (session-id *session*) id)
+      (sqlite:execute-non-query db "INSERT INTO Sessions (Id, LastAccessTime,
     VmState, VmBytecode, VmSources, PageContent, UserRead) VALUES (?, ?, ?, ?, ?, ?, ?)"
-                                       id
-                                       (get-universal-time)
-                                       state
-                                       bytecode
-                                       (session-vm-sources *session*)
-                                       (session-page-content *session*)
-                                       user-read-code))
-            (t (sqlite:execute-non-query db "UPDATE Sessions SET
-    LastAccessTime = ?,
-    VmState = ?,
-    VmBytecode = ?,
-    VmSources = ?,
-    PageContent = ?,
-    UserRead = ?
-    WHERE Id = ?
-    "
-                                         (get-universal-time)
-                                         state
-                                         bytecode
-                                         (session-vm-sources *session*)
-                                         (session-page-content *session*)
-                                         user-read-code
-                                         id))))))
+                                id
+                                (get-universal-time)
+                                state
+                                bytecode
+                                (session-vm-sources *session*)
+                                (session-page-content *session*)
+                                user-read-code))))
 
 (defun load-session (session-id)
   (within-sqlite-transaction
