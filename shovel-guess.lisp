@@ -106,10 +106,14 @@
                                  :user-read nil)))
     (run-session)))
 
+(defun make-sources (program)
+  (list (shovel:make-source-file :name "your-program"
+                                 :contents program)))
+
 (defun run-session ()
   (multiple-value-bind (result vm)
       (shovel:run-vm (session-vm-bytecode *session*)
-                     :sources (session-vm-sources *session*)
+                     :sources (make-sources (session-vm-sources *session*))
                      :user-primitives *udps*
                      :state (session-vm-state *session*))
     (declare (ignore result))
