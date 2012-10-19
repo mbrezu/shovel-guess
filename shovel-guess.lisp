@@ -2,35 +2,6 @@
 
 (in-package #:shovel-guess)
 
-(defparameter *sources* (list "
-    var game = fn () {
-      var secretNumber = floor(@random() * 100 + 1)
-      var attempt = 0
-      var iteration = fn () {
-        attempt = attempt + 1
-        @print('Attempt ' + string(attempt) + ' - ')
-        @print('enter a number between 1 and 100: ')
-        var guess = @readInt()
-        if guess < secretNumber {
-          @printLn('Too small!')
-          iteration()
-        }
-        else if guess > secretNumber {
-          @printLn('Too large!')
-          iteration()
-        }
-        else {
-          @printLn('You guessed it in ' + string(attempt) + ' attempts! Congratulations!')
-          @print('Another game? (y/n) ')
-          if @readChar() == 'y' game()
-        }
-      }
-      iteration()
-    }
-
-    game()
-    "))
-
 (defun start-server ()
   (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor
                                     :port 4242)))
